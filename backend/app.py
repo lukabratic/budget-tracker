@@ -224,6 +224,16 @@ def get_spending_records():
     # Convert Row objects to dictionaries for JSON serialization
     return jsonify([dict(row) for row in spending_data]), 200
 
+# --- NEW API Route to fetch income data ---
+@app.route('/api/income_records', methods=['GET'])
+def get_income_records():
+    db = get_db()
+    cursor = db.cursor()
+    # Fetch all income records, ordered by date descending
+    income_data = cursor.execute("SELECT * FROM income ORDER BY date DESC").fetchall()
+    # Convert Row objects to dictionaries for JSON serialization
+    return jsonify([dict(row) for row in income_data]), 200
+
 
 # --- Existing API route (optional, for demonstration) ---
 @app.route('/api/data')
