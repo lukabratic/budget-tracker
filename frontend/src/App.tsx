@@ -53,11 +53,18 @@ const App: React.FC = () => {
     // State for table search
     const [searchTerm, setSearchTerm] = useState('');
 
+    // State for year selection in monthly spending chart
+    const [selectedYear, setSelectedYear] = useState<string>(String(new Date().getFullYear()));
+    const [availableYears, setAvailableYears] = useState<string[]>([]);
 
-    // Ref for the Chart.js canvas element
-    const chartRef = useRef<HTMLCanvasElement | null>(null);
-    // Ref for the Chart.js instance
-    const chartInstance = useRef<Chart | null>(null);
+
+    // Refs for the Chart.js canvas elements
+    const monthlySpendingChartRef = useRef<HTMLCanvasElement | null>(null);
+    const categorySpendingChartRef = useRef<HTMLCanvasElement | null>(null);
+    // Refs for the Chart.js instances
+    const monthlySpendingChartInstance = useRef<Chart | null>(null);
+    const categorySpendingChartInstance = useRef<Chart | null>(null);
+
 
     // Function to fetch spending data from Flask backend
     const fetchSpendingData = async () => {
@@ -70,6 +77,18 @@ const App: React.FC = () => {
             }
             const data: SpendingRecord[] = await response.json();
             setSpendingRecords(data);
+
+            // Extract unique years for the dropdown
+            const years = Array.from(new Set(
+                data.map(record => new Date(record.date).getFullYear().toString())
+            )).sort((a, b) => parseInt(b) - parseInt(a)); // Sort descending
+            setAvailableYears(years);
+            if (years.length > 0 && !years.includes(selectedYear)) {
+                setSelectedYear(years[0]); // Set to the latest year if current year not in data
+            } else if (years.length === 0) {
+                setSelectedYear(String(new Date().getFullYear())); // Reset to current year if no data
+            }
+
         } catch (error) {
             console.error("Error fetching spending data:", error);
             setSpendingError("Failed to load spending data. Please try again.");
@@ -109,103 +128,205 @@ const App: React.FC = () => {
         }
     }, [activeTab, showUploadPage]); // Depend on activeTab and showUploadPage
 
-    // Effect to handle Chart.js rendering and destruction
+    // Effect to handle Chart.js rendering and destruction for both charts
     useEffect(() => {
-        if (!showUploadPage && activeTab === 'spending' && chartRef.current && spendingRecords.length > 0) {
-            // Destroy existing chart instance if it exists
-            if (chartInstance.current) {
-                chartInstance.current.destroy();
+        if (!showUploadPage && activeTab === 'spending' && spendingRecords.length > 0) {
+            // --- Monthly Spending Line Chart ---
+            if (monthlySpendingChartInstance.current) {
+                monthlySpendingChartInstance.current.destroy();
             }
 
-            // Aggregate spending data by category for the chart
+            const monthlySpending: { [key: string]: number } = {};
+            const monthNames = ["January", "February", "March", "April", "May", "June",
+                                "July", "August", "September", "October", "November", "December"];
+
+            // Initialize all months for the selected year to 0 to ensure all months are shown
+            monthNames.forEach(month => monthlySpending[month] = 0);
+
+            spendingRecords.filter(record => new Date(record.date).getFullYear().toString() === selectedYear)
+                           .forEach(record => {
+                const monthIndex = new Date(record.date).getMonth();
+                const monthName = monthNames[monthIndex];
+                monthlySpending[monthName] = (monthlySpending[monthName] || 0) + record.amount;
+            });
+
+            // Ensure labels are in chronological order
+            const monthlyChartLabels = monthNames; // Use predefined month names for order
+            const monthlyChartData = monthlyChartLabels.map(month => monthlySpending[month]);
+
+            if (monthlySpendingChartRef.current) {
+                const ctxMonthly = monthlySpendingChartRef.current.getContext('2d');
+                if (ctxMonthly) {
+                    monthlySpendingChartInstance.current = new Chart(ctxMonthly, {
+                        type: 'line', // Changed to line chart
+                        data: {
+                            labels: monthlyChartLabels,
+                            datasets: [{
+                                label: 'Total Spending', // Changed label
+                                data: monthlyChartData,
+                                fill: false, // Don't fill area under the line
+                                borderColor: 'rgba(75, 192, 192, 1)', // Line color
+                                backgroundColor: 'rgba(75, 192, 192, 0.2)', // Point background color
+                                tension: 0.3, // Smoothness of the line
+                                pointBackgroundColor: 'rgba(75, 192, 192, 1)',
+                                pointBorderColor: '#fff',
+                                pointHoverBackgroundColor: '#fff',
+                                pointHoverBorderColor: 'rgba(75, 192, 192, 1)',
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                title: {
+                                    display: true,
+                                    text: `Monthly Spending Trends (${selectedYear})`, // Updated title
+                                    font: { size: 18, weight: 'bold' },
+                                    color: '#E5E7EB',
+                                },
+                                legend: {
+                                    labels: {
+                                        color: '#E5E7EB', // Legend text color
+                                    }
+                                },
+                                tooltip: {
+                                    callbacks: {
+                                        label: function(context) {
+                                            let label = context.dataset.label || '';
+                                            if (label) {
+                                                label += ': ';
+                                            }
+                                            if (context.parsed.y !== null) {
+                                                label += new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(context.parsed.y);
+                                            }
+                                            return label;
+                                        }
+                                    }
+                                }
+                            },
+                            scales: {
+                                x: {
+                                    title: {
+                                        display: true,
+                                        text: 'Month',
+                                        color: '#E5E7EB',
+                                    },
+                                    grid: {
+                                        color: 'rgba(255, 255, 255, 0.1)', // Lighter grid lines
+                                    },
+                                    ticks: {
+                                        color: '#E5E7EB', // X-axis labels color
+                                    }
+                                },
+                                y: {
+                                    title: {
+                                        display: true,
+                                        text: 'Amount ($)',
+                                        color: '#E5E7EB',
+                                    },
+                                    beginAtZero: true,
+                                    grid: {
+                                        color: 'rgba(255, 255, 255, 0.1)', // Lighter grid lines
+                                    },
+                                    ticks: {
+                                        callback: function(value: any) {
+                                            return '$' + value;
+                                        },
+                                        color: '#E5E7EB', // Y-axis labels color
+                                    }
+                                }
+                            }
+                        }
+                    });
+                }
+            }
+
+            // --- Category Spending Bar Graph (remains largely the same) ---
+            if (categorySpendingChartInstance.current) {
+                categorySpendingChartInstance.current.destroy();
+            }
+
             const spendingByCategory: { [key: string]: number } = {};
             spendingRecords.forEach(record => {
-                const category = record.category || 'Uncategorized'; // Handle null/empty categories
+                const category = record.category || 'Uncategorized';
                 spendingByCategory[category] = (spendingByCategory[category] || 0) + record.amount;
             });
 
-            const chartLabels = Object.keys(spendingByCategory);
-            const chartData = Object.values(spendingByCategory);
+            const categoryChartLabels = Object.keys(spendingByCategory);
+            const categoryChartData = Object.values(spendingByCategory);
 
-            const ctx = chartRef.current.getContext('2d');
-            if (ctx) {
-                chartInstance.current = new Chart(ctx, {
-                    type: 'bar', // Or 'pie', 'line', etc.
-                    data: {
-                        labels: chartLabels,
-                        datasets: [
-                            {
-                                label: 'Spending by Category',
-                                data: chartData,
-                                backgroundColor: [
-                                    'rgba(75, 192, 192, 0.6)', 'rgba(255, 99, 132, 0.6)',
-                                    'rgba(54, 162, 235, 0.6)', 'rgba(255, 206, 86, 0.6)',
-                                    'rgba(153, 102, 255, 0.6)', 'rgba(201, 203, 207, 0.6)',
-                                    'rgba(255, 159, 64, 0.6)'
-                                ],
-                                borderColor: [
-                                    'rgba(75, 192, 192, 1)', 'rgba(255, 99, 132, 1)',
-                                    'rgba(54, 162, 235, 1)', 'rgba(255, 206, 86, 1)',
-                                    'rgba(153, 102, 255, 1)', 'rgba(201, 203, 207, 1)',
-                                    'rgba(255, 159, 64, 1)'
-                                ],
-                                borderWidth: 1,
-                            },
-                        ],
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: {
-                            title: {
-                                display: true,
-                                text: 'Monthly Spending Breakdown',
-                                font: {
-                                    size: 18,
-                                    weight: 'bold',
+            if (categorySpendingChartRef.current) {
+                const ctxCategory = categorySpendingChartRef.current.getContext('2d');
+                if (ctxCategory) {
+                    categorySpendingChartInstance.current = new Chart(ctxCategory, {
+                        type: 'bar',
+                        data: {
+                            labels: categoryChartLabels,
+                            datasets: [
+                                {
+                                    label: 'Spending by Category',
+                                    data: categoryChartData,
+                                    backgroundColor: [
+                                        'rgba(75, 192, 192, 0.6)', 'rgba(255, 99, 132, 0.6)',
+                                        'rgba(54, 162, 235, 0.6)', 'rgba(255, 206, 86, 0.6)',
+                                        'rgba(153, 102, 255, 0.6)', 'rgba(201, 203, 207, 0.6)',
+                                        'rgba(255, 159, 64, 0.6)'
+                                    ],
+                                    borderColor: [
+                                        'rgba(75, 192, 192, 1)', 'rgba(255, 99, 132, 1)',
+                                        'rgba(54, 162, 235, 1)', 'rgba(255, 206, 86, 1)',
+                                        'rgba(153, 102, 255, 1)', 'rgba(201, 203, 207, 1)',
+                                        'rgba(255, 159, 64, 1)'
+                                    ],
+                                    borderWidth: 1,
                                 },
-                                color: '#E5E7EB', // Light text for dark mode chart title
-                            },
-                            legend: {
-                                display: false,
-                            },
+                            ],
                         },
-                        scales: {
-                            x: {
-                                beginAtZero: true,
-                                grid: {
-                                    display: false,
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                title: {
+                                    display: true,
+                                    text: 'Total Spending by Category',
+                                    font: { size: 18, weight: 'bold' },
+                                    color: '#E5E7EB',
                                 },
-                                ticks: {
-                                    color: '#E5E7EB', // Light text for x-axis labels
-                                },
+                                legend: { display: false },
                             },
-                            y: {
-                                beginAtZero: true,
-                                ticks: {
-                                    callback: function(value: any) {
-                                        return '$' + value;
+                            scales: {
+                                x: {
+                                    beginAtZero: true,
+                                    grid: { display: false },
+                                    ticks: { color: '#E5E7EB' },
+                                },
+                                y: {
+                                    beginAtZero: true,
+                                    ticks: {
+                                        callback: function(value: any) { return '$' + value; },
+                                        color: '#E5E7EB',
                                     },
-                                    color: '#E5E7EB', // Light text for y-axis labels
-                                },
-                                grid: {
-                                    color: 'rgba(255, 255, 255, 0.1)', // Lighter grid lines
+                                    grid: { color: 'rgba(255, 255, 255, 0.1)' },
                                 },
                             },
                         },
-                    },
-                });
+                    });
+                }
             }
         }
 
-        // Cleanup function: destroy chart when component unmounts or tab changes
+        // Cleanup function: destroy charts when component unmounts or tab changes
         return () => {
-            if (chartInstance.current) {
-                chartInstance.current.destroy();
-                chartInstance.current = null;
+            if (monthlySpendingChartInstance.current) {
+                monthlySpendingChartInstance.current.destroy();
+                monthlySpendingChartInstance.current = null;
+            }
+            if (categorySpendingChartInstance.current) {
+                categorySpendingChartInstance.current.destroy();
+                categorySpendingChartInstance.current = null;
             }
         };
-    }, [activeTab, showUploadPage, spendingRecords]); // Re-run effect when activeTab, showUploadPage, or spendingRecords change
+    }, [activeTab, showUploadPage, spendingRecords, selectedYear]); // Re-run effect when these dependencies change
 
     // Helper function to get button classes based on active tab
     const getTabButtonClasses = (tabName: TabName) => {
@@ -240,13 +361,20 @@ const App: React.FC = () => {
             const aValue = a[sortColumn];
             const bValue = b[sortColumn];
 
+            // Special handling for date strings
+            if (sortColumn === 'date') {
+                const dateA = new Date(aValue as string).getTime();
+                const dateB = new Date(bValue as string).getTime();
+                return sortDirection === 'asc' ? dateA - dateB : dateB - dateA;
+            }
+
             if (typeof aValue === 'string' && typeof bValue === 'string') {
                 return sortDirection === 'asc' ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
             }
             if (typeof aValue === 'number' && typeof bValue === 'number') {
                 return sortDirection === 'asc' ? aValue - bValue : bValue - aValue;
             }
-            // Fallback for other types or mixed types (e.g., dates)
+            // Fallback for other types or mixed types
             return 0;
         });
 
@@ -351,11 +479,34 @@ const App: React.FC = () => {
                             </div>
                         )}
 
-                        {/* Chart Display */}
+                        {/* Charts Display */}
                         {spendingRecords.length > 0 ? (
-                            <div className="mt-6 p-4 bg-gray-600 rounded-lg h-80 mb-6">
-                                <canvas ref={chartRef}></canvas>
-                            </div>
+                            <>
+                                {/* Monthly Spending Line Chart with Year Selector */}
+                                <div className="mt-6 p-4 bg-gray-600 rounded-lg mb-6 flex flex-col items-center">
+                                    <div className="mb-4">
+                                        <label htmlFor="year-select" className="text-gray-300 mr-2">Select Year:</label>
+                                        <select
+                                            id="year-select"
+                                            value={selectedYear}
+                                            onChange={(e) => setSelectedYear(e.target.value)}
+                                            className="p-2 rounded-md bg-gray-700 text-white border border-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                        >
+                                            {availableYears.map(year => (
+                                                <option key={year} value={year}>{year}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div className="w-full h-80"> {/* Fixed height for chart container */}
+                                        <canvas ref={monthlySpendingChartRef}></canvas>
+                                    </div>
+                                </div>
+
+                                {/* Category Spending Bar Graph */}
+                                <div className="mt-6 p-4 bg-gray-600 rounded-lg h-80 mb-6">
+                                    <canvas ref={categorySpendingChartRef}></canvas>
+                                </div>
+                            </>
                         ) : (
                             !loadingSpending && !spendingError && (
                                 <p className="text-center text-gray-400 mt-4">No spending data available. Please upload an Excel sheet.</p>
