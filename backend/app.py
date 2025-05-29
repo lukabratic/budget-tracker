@@ -101,6 +101,11 @@ def upload_spending():
 
             db = get_db()
             cursor = db.cursor()
+
+            # --- IMPORTANT CHANGE: Delete existing spending data before inserting new ---
+            cursor.execute("DELETE FROM spending;")
+            db.commit() # Commit the deletion immediately
+
             inserted_count = 0
 
             # Ensure only relevant columns are selected for insertion
@@ -176,6 +181,11 @@ def upload_income():
 
             db = get_db()
             cursor = db.cursor()
+
+            # --- IMPORTANT CHANGE: Delete existing income data before inserting new ---
+            cursor.execute("DELETE FROM income;")
+            db.commit() # Commit the deletion immediately
+
             inserted_count = 0
 
             cols_to_insert = ['date', 'source', 'net_income']

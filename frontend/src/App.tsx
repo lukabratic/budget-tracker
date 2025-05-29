@@ -1,5 +1,5 @@
 // frontend/src/App.tsx
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import Chart from 'chart.js/auto'; // Import Chart.js
 import UploadPage from './UploadPage'; // Import the new UploadPage component
 
@@ -41,6 +41,17 @@ const App: React.FC = () => {
     const [loadingIncome, setLoadingIncome] = useState(false);
     // State to manage error state for income data fetching
     const [incomeError, setIncomeError] = useState<string | null>(null);
+
+    // State for table sorting
+    const [sortColumn, setSortColumn] = useState<keyof SpendingRecord>('date');
+    const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+
+    // State for table pagination
+    const [currentPage, setCurrentPage] = useState(1);
+    const [itemsPerPage, setItemsPerPage] = useState(10);
+
+    // State for table search
+    const [searchTerm, setSearchTerm] = useState('');
 
 
     // Ref for the Chart.js canvas element
@@ -214,6 +225,67 @@ const App: React.FC = () => {
         fetchIncomeData();
     };
 
+    // --- Table Logic ---
+
+    // Filtered and Sorted Spending Records
+    const filteredAndSortedSpendingRecords = useMemo(() => {
+        let filtered = spendingRecords.filter(record =>
+            Object.values(record).some(value =>
+                String(value).toLowerCase().includes(searchTerm.toLowerCase())
+            )
+        );
+
+        // Sort the filtered data
+        filtered.sort((a, b) => {
+            const aValue = a[sortColumn];
+            const bValue = b[sortColumn];
+
+            if (typeof aValue === 'string' && typeof bValue === 'string') {
+                return sortDirection === 'asc' ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
+            }
+            if (typeof aValue === 'number' && typeof bValue === 'number') {
+                return sortDirection === 'asc' ? aValue - bValue : bValue - aValue;
+            }
+            // Fallback for other types or mixed types (e.g., dates)
+            return 0;
+        });
+
+        return filtered;
+    }, [spendingRecords, searchTerm, sortColumn, sortDirection]);
+
+    // Pagination Logic
+    const totalPages = Math.ceil(filteredAndSortedSpendingRecords.length / itemsPerPage);
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    const currentSpendingPageData = filteredAndSortedSpendingRecords.slice(startIndex, endIndex);
+
+    const handleSort = (column: keyof SpendingRecord) => {
+        if (sortColumn === column) {
+            setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+        } else {
+            setSortColumn(column);
+            setSortDirection('asc'); // Default to ascending when changing column
+        }
+        setCurrentPage(1); // Reset to first page on sort
+    };
+
+    const handlePageChange = (page: number) => {
+        if (page >= 1 && page <= totalPages) {
+            setCurrentPage(page);
+        }
+    };
+
+    const handleItemsPerPageChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+        setItemsPerPage(Number(e.target.value));
+        setCurrentPage(1); // Reset to first page when items per page changes
+    };
+
+    const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        setSearchTerm(e.target.value);
+        setCurrentPage(1); // Reset to first page on search
+    };
+
+
     if (showUploadPage) {
         return <UploadPage onUploadSuccess={handleUploadSuccess} />;
     }
@@ -290,51 +362,123 @@ const App: React.FC = () => {
                             )
                         )}
 
+                        {/* Search and Pagination Controls */}
+                        {spendingRecords.length > 0 && (
+                            <div className="flex flex-col md:flex-row justify-between items-center mb-4 gap-4">
+                                {/* Search Input */}
+                                <input
+                                    type="text"
+                                    placeholder="Search spending..."
+                                    value={searchTerm}
+                                    onChange={handleSearchChange}
+                                    className="p-2 rounded-md bg-gray-600 text-white placeholder-gray-400 border border-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 w-full md:w-1/3"
+                                />
+
+                                {/* Items per page dropdown */}
+                                <div className="flex items-center gap-2">
+                                    <label htmlFor="itemsPerPage" className="text-gray-300">Items per page:</label>
+                                    <select
+                                        id="itemsPerPage"
+                                        value={itemsPerPage}
+                                        onChange={handleItemsPerPageChange}
+                                        className="p-2 rounded-md bg-gray-600 text-white border border-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-50"
+                                    >
+                                        <option value={5}>5</option>
+                                        <option value={10}>10</option>
+                                        <option value={20}>20</option>
+                                        <option value={50}>50</option>
+                                    </select>
+                                </div>
+                            </div>
+                        )}
+
+
                         {/* Spending Records Table */}
                         {spendingRecords.length > 0 && (
                             <div className="mt-8 overflow-x-auto bg-gray-800 rounded-lg shadow-md border border-gray-700">
                                 <table className="min-w-full divide-y divide-gray-700">
                                     <thead className="bg-gray-700">
                                         <tr>
-                                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider cursor-pointer"
+                                                onClick={() => handleSort('date')}>
                                                 Date
+                                                {sortColumn === 'date' && (sortDirection === 'asc' ? ' ▲' : ' ▼')}
                                             </th>
-                                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider cursor-pointer"
+                                                onClick={() => handleSort('description')}>
                                                 Description
+                                                {sortColumn === 'description' && (sortDirection === 'asc' ? ' ▲' : ' ▼')}
                                             </th>
-                                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider cursor-pointer"
+                                                onClick={() => handleSort('category')}>
                                                 Category
+                                                {sortColumn === 'category' && (sortDirection === 'asc' ? ' ▲' : ' ▼')}
                                             </th>
-                                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider cursor-pointer"
+                                                onClick={() => handleSort('card_used')}>
                                                 Card Used
+                                                {sortColumn === 'card_used' && (sortDirection === 'asc' ? ' ▲' : ' ▼')}
                                             </th>
-                                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider cursor-pointer"
+                                                onClick={() => handleSort('amount')}>
                                                 Amount
+                                                {sortColumn === 'amount' && (sortDirection === 'asc' ? ' ▲' : ' ▼')}
                                             </th>
                                         </tr>
                                     </thead>
                                     <tbody className="bg-gray-800 divide-y divide-gray-700">
-                                        {spendingRecords.map((record) => (
-                                            <tr key={record.id}>
-                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-200">
-                                                    {new Date(record.date).toLocaleDateString()}
-                                                </td>
-                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-200">
-                                                    {record.description}
-                                                </td>
-                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-200">
-                                                    {record.category}
-                                                </td>
-                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-200">
-                                                    {record.card_used}
-                                                </td>
-                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-200">
-                                                    ${record.amount.toFixed(2)}
+                                        {currentSpendingPageData.length > 0 ? (
+                                            currentSpendingPageData.map((record) => (
+                                                <tr key={record.id}>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-200">
+                                                        {new Date(record.date).toLocaleDateString()}
+                                                    </td>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-200">
+                                                        {record.description}
+                                                    </td>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-200">
+                                                        {record.category}
+                                                    </td>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-200">
+                                                        {record.card_used}
+                                                    </td>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-200">
+                                                        ${record.amount.toFixed(2)}
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        ) : (
+                                            <tr>
+                                                <td colSpan={5} className="px-6 py-4 text-center text-gray-400">
+                                                    No matching spending records found.
                                                 </td>
                                             </tr>
-                                        ))}
+                                        )}
                                     </tbody>
                                 </table>
+                            </div>
+                        )}
+
+                        {/* Pagination Controls */}
+                        {filteredAndSortedSpendingRecords.length > 0 && (
+                            <div className="flex justify-between items-center mt-4">
+                                <button
+                                    onClick={() => handlePageChange(currentPage - 1)}
+                                    disabled={currentPage === 1}
+                                    className="px-4 py-2 rounded-md bg-indigo-600 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    Previous
+                                </button>
+                                <span className="text-gray-300">
+                                    Page {currentPage} of {totalPages}
+                                </span>
+                                <button
+                                    onClick={() => handlePageChange(currentPage + 1)}
+                                    disabled={currentPage === totalPages}
+                                    className="px-4 py-2 rounded-md bg-indigo-600 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    Next
+                                </button>
                             </div>
                         )}
                     </div>
