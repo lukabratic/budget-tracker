@@ -44,14 +44,20 @@ const SpendingTab: React.FC<SpendingTabProps> = ({
     // State for category filter from chart click
     const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string | null>(null);
 
+    // State for expanded category in the new monthly category table
+    const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
+
+    // State for toggling visibility of the entire "Spending by Category per Month" table
+    const [showCategoryMonthlyTable, setShowCategoryMonthlyTable] = useState(false);
+
+
     // Refs for the Chart.js canvas elements
     const monthlySpendingChartRef = useRef<HTMLCanvasElement | null>(null);
     const categorySpendingChartRef = useRef<HTMLCanvasElement | null>(null);
-    const categoryByMonthChartRef = useRef<HTMLCanvasElement | null>(null);
     // Refs for the Chart.js instances
     const monthlySpendingChartInstance = useRef<Chart | null>(null);
     const categorySpendingChartInstance = useRef<Chart | null>(null);
-    const categoryByMonthChartInstance = useRef<Chart | null>(null);
+
 
     // Function to generate distinct colors for charts
     const generateColors = (numColors: number) => {
@@ -70,7 +76,7 @@ const SpendingTab: React.FC<SpendingTabProps> = ({
         return colors;
     };
 
-    // Effect to handle Chart.js rendering and destruction for all charts
+    // Effect to handle Chart.js rendering and destruction for both charts
     useEffect(() => {
         if (spendingRecords.length > 0) {
             // --- Monthly Spending Line Chart ---
@@ -255,98 +261,6 @@ const SpendingTab: React.FC<SpendingTabProps> = ({
                     });
                 }
             }
-
-            // --- Spending by Category by Month Column Chart ---
-            if (categoryByMonthChartInstance.current) {
-                categoryByMonthChartInstance.current.destroy();
-            }
-
-            const categories = Array.from(new Set(spendingRecords.map(r => r.category || 'Uncategorized')));
-            const categoryByMonthData: { [category: string]: { [month: string]: number } } = {};
-            const monthNamesForCategoryByMonth = ["January", "February", "March", "April", "May", "June",
-                                "July", "August", "September", "October", "November", "December"];
-
-            categories.forEach(cat => {
-                categoryByMonthData[cat] = {};
-                monthNamesForCategoryByMonth.forEach(month => categoryByMonthData[cat][month] = 0);
-            });
-
-            spendingRecords.filter(record => new Date(record.date).getFullYear().toString() === selectedYear)
-                           .forEach(record => {
-                const monthIndex = new Date(record.date).getMonth();
-                const monthName = monthNamesForCategoryByMonth[monthIndex];
-                const category = record.category || 'Uncategorized';
-                categoryByMonthData[category][monthName] += record.amount;
-            });
-
-            const datasetsForCategoryByMonth = categories.map((category, index) => {
-                const data = monthNamesForCategoryByMonth.map(month => categoryByMonthData[category][month]);
-                const color = generateColors(categories.length)[index];
-                return {
-                    label: category,
-                    data: data,
-                    backgroundColor: color,
-                    borderColor: color.replace('0.6', '1'),
-                    borderWidth: 1,
-                };
-            });
-
-            if (categoryByMonthChartRef.current) {
-                const ctxCatMonth = categoryByMonthChartRef.current.getContext('2d');
-                if (ctxCatMonth) {
-                    categoryByMonthChartInstance.current = new Chart(ctxCatMonth, {
-                        type: 'bar',
-                        data: {
-                            labels: monthNamesForCategoryByMonth,
-                            datasets: datasetsForCategoryByMonth,
-                        },
-                        options: {
-                            responsive: true,
-                            maintainAspectRatio: false,
-                            plugins: {
-                                title: {
-                                    display: true,
-                                    text: `Spending by Category per Month (${selectedYear})`,
-                                    font: { size: 18, weight: 'bold' },
-                                    color: '#E5E7EB',
-                                },
-                                legend: {
-                                    labels: {
-                                        color: '#E5E7EB',
-                                    },
-                                    position: 'top',
-                                },
-                            },
-                            scales: {
-                                x: {
-                                    stacked: true,
-                                    grid: { display: false },
-                                    ticks: { color: '#E5E7EB' },
-                                    title: {
-                                        display: true,
-                                        text: 'Month',
-                                        color: '#E5E7EB',
-                                    },
-                                },
-                                y: {
-                                    stacked: true,
-                                    beginAtZero: true,
-                                    ticks: {
-                                        callback: function(value: any) { return '$' + value; },
-                                        color: '#E5E7EB',
-                                    },
-                                    grid: { color: 'rgba(255, 255, 255, 0.1)' },
-                                    title: {
-                                        display: true,
-                                        text: 'Amount ($)',
-                                        color: '#E5E7EB',
-                                    },
-                                },
-                            },
-                        },
-                    });
-                }
-            }
         }
 
         // Cleanup function: destroy charts when component unmounts or tab changes
@@ -358,10 +272,6 @@ const SpendingTab: React.FC<SpendingTabProps> = ({
             if (categorySpendingChartInstance.current) {
                 categorySpendingChartInstance.current.destroy();
                 categorySpendingChartInstance.current = null;
-            }
-            if (categoryByMonthChartInstance.current) {
-                categoryByMonthChartInstance.current.destroy();
-                categoryByMonthChartInstance.current = null;
             }
         };
     }, [spendingRecords, selectedYear]); // Re-run effect when these dependencies change
@@ -400,7 +310,7 @@ const SpendingTab: React.FC<SpendingTabProps> = ({
                 return sortDirectionSpending === 'asc' ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
             }
             if (typeof aValue === 'number' && typeof bValue === 'number') {
-                return sortDirectionSpending === 'asc' ? aValue - bValue : bValue - aValue;
+                return sortDirectionSpending === 'asc' ? aValue - bValue : bValue - aValue; // Corrected bBValue to bValue
             }
             // Fallback for other types or mixed types
             return 0;
@@ -446,6 +356,49 @@ const SpendingTab: React.FC<SpendingTabProps> = ({
         setCurrentPageSpending(1); // Reset pagination
     };
 
+    // --- Data preparation for "Spending by Category by Month" Table ---
+    const categoryMonthlySummary = useMemo(() => {
+        const summary: { [category: string]: { [month: string]: number } } = {};
+        const monthNames = ["January", "February", "March", "April", "May", "June",
+                            "July", "August", "September", "October", "November", "December"];
+
+        // Initialize all months for each category
+        const allCategories = Array.from(new Set(spendingRecords.map(r => r.category || 'Uncategorized')));
+        allCategories.forEach(cat => {
+            summary[cat] = {};
+            monthNames.forEach(month => summary[cat][month] = 0);
+        });
+
+        // Populate with actual data for the selected year
+        spendingRecords.filter(record => new Date(record.date).getFullYear().toString() === selectedYear)
+                       .forEach(record => {
+            const monthIndex = new Date(record.date).getMonth();
+            const monthName = monthNames[monthIndex];
+            const category = record.category || 'Uncategorized';
+            summary[category][monthName] += record.amount;
+        });
+
+        return summary;
+    }, [spendingRecords, selectedYear]);
+
+    // Function to toggle expanded state for category rows
+    const toggleCategoryExpansion = (category: string) => {
+        setExpandedCategory(prev => (prev === category ? null : category));
+    };
+
+    // Function to toggle visibility of the entire "Spending by Category per Month" table
+    const toggleCategoryMonthlyTableVisibility = () => {
+        setShowCategoryMonthlyTable(prev => !prev);
+    };
+
+    // Calculate total spending for the selected year
+    const totalSpendingForSelectedYear = useMemo(() => {
+        return spendingRecords
+            .filter(record => new Date(record.date).getFullYear().toString() === selectedYear)
+            .reduce((sum, record) => sum + record.amount, 0);
+    }, [spendingRecords, selectedYear]);
+
+
     return (
         <div className="flex-grow p-6 bg-gray-700 rounded-lg border border-gray-600 shadow-inner animate-fade-in text-gray-100">
             <h2 className="text-3xl font-bold text-green-300 mb-4">Track Your Spending</h2>
@@ -467,35 +420,125 @@ const SpendingTab: React.FC<SpendingTabProps> = ({
             {/* Charts Display */}
             {spendingRecords.length > 0 ? (
                 <>
-                    {/* Monthly Spending Line Chart with Year Selector */}
+                    {/* Monthly Spending Line Chart with Year Selector and Total Spending */}
                     <div className="mt-6 p-4 bg-gray-600 rounded-lg mb-6 flex flex-col items-center">
-                        <div className="mb-4">
-                            <label htmlFor="year-select" className="text-gray-300 mr-2">Select Year:</label>
-                            <select
-                                id="year-select"
-                                value={selectedYear}
-                                onChange={(e) => setSelectedYear(e.target.value)}
-                                className="p-2 rounded-md bg-gray-700 text-white border border-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                            >
-                                {availableYears.map(year => (
-                                    <option key={year} value={year}>{year}</option>
-                                ))}
-                            </select>
+                        <div className="mb-4 flex flex-col md:flex-row items-center justify-center gap-4 w-full">
+                            <div className="flex items-center">
+                                <label htmlFor="year-select" className="text-gray-300 mr-2">Select Year:</label>
+                                <select
+                                    id="year-select"
+                                    value={selectedYear}
+                                    onChange={(e) => setSelectedYear(e.target.value)}
+                                    className="p-2 rounded-md bg-gray-700 text-white border border-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                >
+                                    {availableYears.map(year => (
+                                        <option key={year} value={year}>{year}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className="text-lg font-bold text-gray-100">
+                                Total Spent ({selectedYear}): <span className="text-green-400">${totalSpendingForSelectedYear.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                            </div>
                         </div>
                         <div className="w-full h-80">
                             <canvas ref={monthlySpendingChartRef}></canvas>
                         </div>
                     </div>
 
-                    {/* Category Spending Bar Graph (Clickable) */}
+                    {/* Total Spending by Category Bar Graph (Clickable) */}
                     <div className="mt-6 p-4 bg-gray-600 rounded-lg h-80 mb-6">
                         <canvas ref={categorySpendingChartRef}></canvas>
                     </div>
 
-                    {/* Spending by Category by Month Column Chart */}
-                    <div className="mt-6 p-4 bg-gray-600 rounded-lg h-80 mb-6">
-                        <canvas ref={categoryByMonthChartRef}></canvas>
+                    {/* Toggle button for Spending by Category by Month Table */}
+                    <div className="text-center mb-6">
+                        <button
+                            onClick={toggleCategoryMonthlyTableVisibility}
+                            className="px-6 py-3 rounded-md bg-purple-600 text-white font-semibold hover:bg-purple-700 transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        >
+                            {showCategoryMonthlyTable ? 'Hide Monthly Category Breakdown' : 'Show Monthly Category Breakdown'}
+                        </button>
                     </div>
+
+                    {/* Spending by Category by Month Table (Conditionally rendered) */}
+                    {showCategoryMonthlyTable && (
+                        <div className="mt-6 p-4 bg-gray-600 rounded-lg mb-6 animate-fade-in">
+                            <h3 className="text-2xl font-bold text-gray-100 mb-4 text-center">
+                                Spending by Category per Month ({selectedYear})
+                            </h3>
+                            <div className="overflow-x-auto bg-gray-800 rounded-lg shadow-md border border-gray-700">
+                                <table className="min-w-full divide-y divide-gray-700">
+                                    <thead className="bg-gray-700">
+                                        <tr>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                                                Category
+                                            </th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                                                Total
+                                            </th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                                                Details
+                                            </th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="bg-gray-800 divide-y divide-gray-700">
+                                        {Object.entries(categoryMonthlySummary).map(([category, monthsData]) => {
+                                            const totalCategorySpending = Object.values(monthsData).reduce((sum, amount) => sum + amount, 0);
+                                            const isExpanded = expandedCategory === category;
+                                            const monthNames = ["January", "February", "March", "April", "May", "June",
+                                                                "July", "August", "September", "October", "November", "December"];
+
+                                            return (
+                                                <React.Fragment key={category}>
+                                                    <tr>
+                                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-200">
+                                                            {category}
+                                                        </td>
+                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-200">
+                                                            ${totalCategorySpending.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                        </td>
+                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-200">
+                                                            <button
+                                                                onClick={() => toggleCategoryExpansion(category)}
+                                                                className="px-3 py-1 rounded-md bg-indigo-600 text-white text-xs hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                                            >
+                                                                {isExpanded ? 'Hide Months' : 'Show Months'}
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                    {isExpanded && (
+                                                        <tr>
+                                                            <td colSpan={3} className="p-0">
+                                                                <div className="bg-gray-700 p-4 border-t border-gray-600">
+                                                                    <h4 className="text-lg font-semibold text-gray-100 mb-2">
+                                                                        Monthly Breakdown for {category}
+                                                                    </h4>
+                                                                    <ul className="list-disc list-inside text-gray-300">
+                                                                        {monthNames.map(month => (
+                                                                            <li key={month} className="py-1">
+                                                                                {month}: ${monthsData[month].toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                            </li>
+                                                                        ))}
+                                                                    </ul>
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                    )}
+                                                </React.Fragment>
+                                            );
+                                        })}
+                                        {Object.keys(categoryMonthlySummary).length === 0 && (
+                                            <tr>
+                                                <td colSpan={3} className="px-6 py-4 text-center text-gray-400">
+                                                    No category spending data for {selectedYear}.
+                                                </td>
+                                            </tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
                 </>
             ) : (
                 !loadingSpending && !spendingError && (
