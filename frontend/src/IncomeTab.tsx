@@ -1,5 +1,6 @@
 // frontend/src/IncomeTab.tsx
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import Chart from 'chart.js/auto'; // Import Chart.js for the new chart
 
 // Define interfaces for data
 interface IncomeRecord {
@@ -30,6 +31,138 @@ const IncomeTab: React.FC<IncomeTabProps> = ({
 
     // State for income table search
     const [searchTermIncome, setSearchTermIncome] = useState('');
+
+    // State for year selection in monthly income chart (NEW)
+    const [selectedYearIncome, setSelectedYearIncome] = useState<string>(String(new Date().getFullYear()));
+    const [availableYearsIncome, setAvailableYearsIncome] = useState<string[]>([]);
+
+    // Ref for the new monthly income chart canvas and its instance (NEW)
+    const monthlyIncomeChartRef = useRef<HTMLCanvasElement | null>(null);
+    const monthlyIncomeChartInstance = useRef<Chart | null>(null);
+
+
+    // Effect to extract unique years from incomeRecords for the dropdown (NEW)
+    useEffect(() => {
+        if (incomeRecords.length > 0) {
+            const years = Array.from(new Set(
+                incomeRecords.map(record => new Date(record.date).getFullYear().toString())
+            )).sort((a, b) => parseInt(b) - parseInt(a)); // Sort descending
+            setAvailableYearsIncome(years);
+            if (years.length > 0 && !years.includes(selectedYearIncome)) {
+                setSelectedYearIncome(years[0]); // Set to the latest year if current year not in data
+            } else if (years.length === 0) {
+                setSelectedYearIncome(String(new Date().getFullYear())); // Reset to current year if no data
+            }
+        } else {
+            setAvailableYearsIncome([]);
+            setSelectedYearIncome(String(new Date().getFullYear()));
+        }
+    }, [incomeRecords]); // Dependency on incomeRecords to re-calculate years
+
+
+    // Effect to handle Chart.js rendering and destruction for the monthly income chart (NEW)
+    useEffect(() => {
+        if (incomeRecords.length > 0 && monthlyIncomeChartRef.current) {
+            // Destroy existing chart instance if it exists
+            if (monthlyIncomeChartInstance.current) {
+                monthlyIncomeChartInstance.current.destroy();
+            }
+
+            const monthlyIncome: { [key: string]: number } = {};
+            const monthNames = ["January", "February", "March", "April", "May", "June",
+                                "July", "August", "September", "October", "November", "December"];
+
+            // Initialize all months for the selected year to 0
+            monthNames.forEach(month => monthlyIncome[month] = 0);
+
+            incomeRecords.filter(record => new Date(record.date).getFullYear().toString() === selectedYearIncome)
+                           .forEach(record => {
+                const monthIndex = new Date(record.date).getMonth();
+                const monthName = monthNames[monthIndex];
+                monthlyIncome[monthName] = (monthlyIncome[monthName] || 0) + record.net_income;
+            });
+
+            const monthlyChartLabels = monthNames;
+            const monthlyChartData = monthlyChartLabels.map(month => monthlyIncome[month]);
+
+            const ctx = monthlyIncomeChartRef.current.getContext('2d');
+            if (ctx) {
+                monthlyIncomeChartInstance.current = new Chart(ctx, {
+                    type: 'bar', // Bar graph for income by month
+                    data: {
+                        labels: monthlyChartLabels,
+                        datasets: [
+                            {
+                                label: 'Income by Month',
+                                data: monthlyChartData,
+                                backgroundColor: 'rgba(255, 206, 86, 0.6)', // Yellowish color for income
+                                borderColor: 'rgba(255, 206, 86, 1)',
+                                borderWidth: 1,
+                            },
+                        ],
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            title: {
+                                display: true,
+                                text: `Monthly Income Breakdown (${selectedYearIncome})`,
+                                font: {
+                                    size: 18,
+                                    weight: 'bold',
+                                },
+                                color: '#E5E7EB', // Light text for dark mode chart title
+                            },
+                            legend: {
+                                display: false,
+                            },
+                        },
+                        scales: {
+                            x: {
+                                beginAtZero: true,
+                                grid: {
+                                    display: false,
+                                },
+                                ticks: {
+                                    color: '#E5E7EB', // Light text for x-axis labels
+                                },
+                            },
+                            y: {
+                                beginAtZero: true,
+                                ticks: {
+                                    callback: function(value: any) {
+                                        return '$' + value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                    },
+                                    color: '#E5E7EB', // Light text for y-axis labels
+                                },
+                                grid: {
+                                    color: 'rgba(255, 255, 255, 0.1)', // Lighter grid lines
+                                },
+                            },
+                        },
+                    },
+                });
+            }
+        }
+
+        // Cleanup function: destroy chart when component unmounts or selectedYearIncome changes
+        return () => {
+            if (monthlyIncomeChartInstance.current) {
+                monthlyIncomeChartInstance.current.destroy();
+                monthlyIncomeChartInstance.current = null;
+            }
+        };
+    }, [incomeRecords, selectedYearIncome]); // Re-run effect when these dependencies change
+
+
+    // Calculate total income for the selected year (NEW)
+    const totalIncomeForSelectedYear = useMemo(() => {
+        return incomeRecords
+            .filter(record => new Date(record.date).getFullYear().toString() === selectedYearIncome)
+            .reduce((sum, record) => sum + record.net_income, 0);
+    }, [incomeRecords, selectedYearIncome]);
+
 
     // Filtered and Sorted Income Records
     const filteredAndSortedIncomeRecords = useMemo(() => {
@@ -113,6 +246,33 @@ const IncomeTab: React.FC<IncomeTabProps> = ({
             )}
             {incomeRecords.length > 0 ? (
                 <>
+                    {/* Year Selector and Total Income Display (NEW) */}
+                    <div className="mt-6 p-4 bg-gray-600 rounded-lg mb-6 flex flex-col items-center">
+                        <div className="mb-4 flex flex-col md:flex-row items-center justify-center gap-4 w-full">
+                            <div className="flex items-center">
+                                <label htmlFor="income-year-select" className="text-gray-300 mr-2">Select Year:</label>
+                                <select
+                                    id="income-year-select"
+                                    value={selectedYearIncome}
+                                    onChange={(e) => setSelectedYearIncome(e.target.value)}
+                                    className="p-2 rounded-md bg-gray-700 text-white border border-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                >
+                                    {availableYearsIncome.map(year => (
+                                        <option key={year} value={year}>{year}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className="text-lg font-bold text-gray-100">
+                                Total Income ({selectedYearIncome}): <span className="text-yellow-400">${totalIncomeForSelectedYear.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                            </div>
+                        </div>
+                        {/* Monthly Income Bar Graph (NEW) */}
+                        <div className="w-full h-80">
+                            <canvas ref={monthlyIncomeChartRef}></canvas>
+                        </div>
+                    </div>
+
+
                     {/* Search and Pagination Controls for Income */}
                     <div className="flex flex-col md:flex-row justify-between items-center mb-4 gap-4">
                         {/* Search Input */}

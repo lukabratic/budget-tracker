@@ -104,14 +104,14 @@ const App: React.FC = () => {
     // This effect is now responsible for triggering data fetches for the respective tabs
     useEffect(() => {
         if (!showUploadPage) { // Only fetch if not on the upload page
-            if (activeTab === 'spending') {
+            if (activeTab === 'spending' || activeTab === 'budget') { // Fetch spending for budget tab too
                 fetchSpendingData();
-            } else if (activeTab === 'income') {
+            }
+            if (activeTab === 'income' || activeTab === 'budget') { // Fetch income for budget tab too
                 fetchIncomeData();
             }
-            // No fetch for 'budget' tab as it's static
         }
-    }, [activeTab, showUploadPage]); // Depend on activeTab and showUploadPage
+    }, [activeTab, showUploadPage]);
 
 
     // Helper function to get button classes based on active tab
@@ -126,7 +126,7 @@ const App: React.FC = () => {
 
     const handleUploadSuccess = () => {
         setShowUploadPage(false); // Switch to the main app page
-        // After successful upload, immediately fetch new data for the spending and income tabs
+        // After successful upload, immediately fetch new data for all relevant tabs
         fetchSpendingData();
         fetchIncomeData();
     };
@@ -163,7 +163,12 @@ const App: React.FC = () => {
                 </div>
 
                 {/* Tab Content */}
-                {activeTab === 'budget' && <BudgetTab />}
+                {activeTab === 'budget' && (
+                    <BudgetTab
+                        spendingRecords={spendingRecords}
+                        incomeRecords={incomeRecords}
+                    />
+                )}
                 {activeTab === 'spending' && (
                     <SpendingTab
                         spendingRecords={spendingRecords}
